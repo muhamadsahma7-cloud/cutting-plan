@@ -679,9 +679,25 @@ def main():
         st.session_state.active_tab = choice
     active = st.session_state.active_tab
 
-    if active == tab_names[0]:
+    # Materials & Pieces always runs — its data_editor widgets are the only
+    # place pending edits get written into st.session_state.materials, and
+    # that write only happens when this function actually executes. With
+    # the other sections gated to "only run when active" (for performance),
+    # switching away right after an edit — before its own on-change rerun
+    # had a chance to run render_materials_tab() — could leave Export/MTO
+    # reading pieces data that didn't yet include the last edit. Running
+    # this one unconditionally (it's cheap — no optimizer/matplotlib calls)
+    # guarantees every other tab sees fully-synced data. It's just hidden
+    # via CSS, not skipped, when another section is selected.
+    with st.container(key="materials_section"):
         render_materials_tab()
-    elif active == tab_names[1]:
+    if active != tab_names[0]:
+        st.markdown(
+            '<style>div[class*="st-key-materials_section"] { display: none; }</style>',
+            unsafe_allow_html=True,
+        )
+
+    if active == tab_names[1]:
         render_visualization_tab()
     elif active == tab_names[2]:
         render_mto_tab()
