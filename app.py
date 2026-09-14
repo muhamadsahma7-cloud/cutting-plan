@@ -27,6 +27,13 @@ theme.inject()
 COLORS = ["#10b981", "#3b82f6", "#f59e0b", "#ef4444", "#8b5cf6", "#06b6d4"]
 GRADE_OPTIONS = ["S235", "S275", "S355", "S355JR", "S355J2", "A36", "A572 Gr50", "A992"]
 
+TAB_OVERVIEW = "🏠 Overview"
+TAB_MATERIALS = "🧱 Materials & Pieces"
+TAB_VISUALIZATION = "📊 Cutting Plan"
+TAB_MTO = "📋 MTO Summary"
+TAB_EXPORT = "📤 Export"
+TAB_ADMIN = "🛡️ Admin"
+
 
 # ── Session state defaults ──────────────────────────────────────────────────
 
@@ -583,6 +590,73 @@ def render_visualization_tab():
         st.pyplot(fig)
 
 
+# ── Overview tab ─────────────────────────────────────────────────────────────
+
+def render_overview_tab():
+    st.markdown("#### 🏠 Project Overview")
+
+    info_bits = []
+    if st.session_state.project_date:
+        info_bits.append(f"📅 {st.session_state.project_date}")
+    if st.session_state.project_engineer:
+        info_bits.append(f"👷 {st.session_state.project_engineer}")
+    info_bits.append(f"✂️ Kerf: {st.session_state.kerf:.1f}mm")
+    st.caption(" · ".join(info_bits))
+
+    mats = st.session_state.materials
+    if not mats:
+        st.info("No materials yet — head to **🧱 Materials & Pieces** to add your first one.")
+        return
+
+    totals = engine.project_totals(mats, st.session_state.kerf)
+    c1, c2, c3, c4, c5 = st.columns(5)
+    c1.metric("Materials", len(mats))
+    c2.metric("Total Pieces", totals["totalPieces"])
+    c3.metric("Total Length (mm)", f"{totals['totalLength']:.0f}")
+    c4.metric("Total Weight (kg)", f"{totals['totalWeight']:.0f}")
+    c5.metric("Overall Surplus", f"{totals['overallSurplus']:.1f}%")
+
+    col_chart, col_table = st.columns([1, 1.4])
+
+    with col_chart:
+        st.markdown("**Material Usage**")
+        used = totals["totalLength"]
+        waste = max(0.0, totals["totalBought"] - totals["totalLength"])
+        with st.container(border=True):
+            if totals["totalBought"] > 0:
+                fig, ax = plt.subplots(figsize=(4.2, 4.2))
+                fig.patch.set_facecolor("#ffffff")
+                ax.pie(
+                    [used, waste], labels=["Used", "Waste"], colors=["#10b981", "#f59e0b"],
+                    autopct="%1.1f%%", startangle=90, pctdistance=0.8,
+                    wedgeprops={"width": 0.4, "edgecolor": "white"}, textprops={"fontsize": 10},
+                )
+                ax.set_aspect("equal")
+                fig.tight_layout()
+                st.pyplot(fig)
+            else:
+                st.info("No purchased length yet — add stock quantities or pieces to see usage.")
+
+    with col_table:
+        st.markdown("**Materials at a Glance**")
+        rows = []
+        for m in mats:
+            metrics = cached_material_metrics(m, st.session_state.kerf)
+            rows.append({
+                "Material": m["name"], "Bars": metrics["requiredBars"],
+                "Balance": metrics["balance"], "Efficiency (%)": round(metrics["efficiency"], 1),
+            })
+        with st.container(border=True):
+            st.dataframe(
+                pd.DataFrame(rows), use_container_width=True, hide_index=True,
+                column_config={
+                    "Balance": st.column_config.NumberColumn(format="%+d"),
+                    "Efficiency (%)": st.column_config.ProgressColumn(min_value=0, max_value=100, format="%.1f%%"),
+                },
+            )
+        st.caption("See **📋 MTO Summary** for the full material take-off table.")
+
+
 # ── MTO / dashboard tab ──────────────────────────────────────────────────────
 
 def render_mto_tab():
@@ -590,14 +664,6 @@ def render_mto_tab():
     if not mats:
         st.info("No materials defined yet.")
         return
-
-    st.markdown("#### 📈 Project Overview")
-    totals = engine.project_totals(mats, st.session_state.kerf)
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Total Pieces", totals["totalPieces"])
-    c2.metric("Total Length (mm)", f"{totals['totalLength']:.0f}")
-    c3.metric("Total Weight (kg)", f"{totals['totalWeight']:.0f}")
-    c4.metric("Overall Surplus", f"{totals['overallSurplus']:.1f}%")
 
     st.markdown("#### 📋 Material Take-Off")
     rows = []
@@ -814,10 +880,10 @@ def main():
         st.session_state.current_project_name or "Cutting Plan & MTO",
         "Linear cutting optimization & material take-off",
     )
-    tab_names = ["🧱 Materials & Pieces", "📊 Cutting Plan", "📋 MTO Summary", "📤 Export"]
+    tab_names = [TAB_OVERVIEW, TAB_MATERIALS, TAB_VISUALIZATION, TAB_MTO, TAB_EXPORT]
     is_admin = user.email == supa.ADMIN_EMAIL
     if is_admin:
-        tab_names.append("🛡️ Admin")
+        tab_names.append(TAB_ADMIN)
 
     if st.session_state.get("active_tab") not in tab_names:
         st.session_state.active_tab = tab_names[0]
@@ -846,19 +912,21 @@ def main():
     # via CSS, not skipped, when another section is selected.
     with st.container(key="materials_section"):
         render_materials_tab()
-    if active != tab_names[0]:
+    if active != TAB_MATERIALS:
         st.markdown(
             '<style>div[class*="st-key-materials_section"] { display: none; }</style>',
             unsafe_allow_html=True,
         )
 
-    if active == tab_names[1]:
+    if active == TAB_OVERVIEW:
+        render_overview_tab()
+    elif active == TAB_VISUALIZATION:
         render_visualization_tab()
-    elif active == tab_names[2]:
+    elif active == TAB_MTO:
         render_mto_tab()
-    elif active == tab_names[3]:
+    elif active == TAB_EXPORT:
         render_export_tab()
-    elif is_admin and active == tab_names[4]:
+    elif is_admin and active == TAB_ADMIN:
         render_admin_tab()
 
 
