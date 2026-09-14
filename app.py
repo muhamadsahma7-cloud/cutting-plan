@@ -434,10 +434,10 @@ def render_materials_tab():
 
 # ── Visualization tab ────────────────────────────────────────────────────────
 
-# Standard printable page (A4 landscape, inches) — used only for the PDF
+# Standard printable page (A3 landscape, inches) — used only for the PDF
 # export, so materials with many bars paginate onto multiple properly-sized
 # sheets instead of one oversized page that prints squished/illegible.
-PDF_PAGE_W, PDF_PAGE_H = 11.69, 8.27
+PDF_PAGE_W, PDF_PAGE_H = 16.54, 11.69
 PDF_HEADER_H, PDF_FOOTER_H, PDF_BAR_ROW_H = 1.3, 0.5, 0.55
 
 
