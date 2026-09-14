@@ -67,6 +67,17 @@ def render_login():
             else:
                 st.error(msg or "Sign in failed.")
 
+        with st.expander("Forgot password?"):
+            reset_email = st.text_input("Email", key="reset_email")
+            if st.button("Send reset link", key="reset_btn"):
+                if not reset_email.strip():
+                    st.warning("Enter your email address first.")
+                else:
+                    ok, msg = supa.reset_password(reset_email.strip())
+                    (st.success if ok else st.error)(msg)
+                    if ok:
+                        st.caption("The reset link opens cuttingnestpro.netlify.app to finish setting your new password — then come back here to sign in.")
+
     with tab_up:
         with st.form("signup_form"):
             email = st.text_input("Email", key="signup_email")

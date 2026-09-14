@@ -57,6 +57,15 @@ def sign_in(email: str, password: str) -> tuple[bool, str]:
         return False, str(exc)
 
 
+def reset_password(email: str) -> tuple[bool, str]:
+    sb = get_client()
+    try:
+        sb.auth.reset_password_for_email(email)
+        return True, f"Password reset email sent to {email}. Check your inbox."
+    except Exception as exc:  # noqa: BLE001
+        return False, str(exc)
+
+
 def sign_up(email: str, password: str) -> tuple[bool, str]:
     sb = get_client()
     try:
