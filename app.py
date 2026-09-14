@@ -412,6 +412,24 @@ def render_materials_tab():
         })
     material["pieces"] = new_pieces
 
+    if material["pieces"]:
+        piece_rows = [{
+            "Piece ID": p["id"], "Material Name": material["name"], "Type": material["type"],
+            "Material Grade": material.get("materialGrade", ""), "Length (mm)": p["length"],
+            "Quantity": p["quantity"], "Total Length (mm)": p["length"] * p["quantity"],
+            "Weight (kg)": round(p["length"] * p["quantity"] / 1000 * material["weightPerMeter"], 1),
+            "Notes": p.get("notes", ""),
+        } for p in material["pieces"]]
+        pieces_buf = BytesIO()
+        with pd.ExcelWriter(pieces_buf, engine="openpyxl") as writer:
+            pd.DataFrame(piece_rows).to_excel(writer, sheet_name="Pieces", index=False)
+        st.download_button(
+            f"⬇️ Export {material['name']} pieces to Excel", data=pieces_buf.getvalue(),
+            file_name=f"{material['name'].replace(' ', '_')}_pieces.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key=f"pieces_export_{material['id']}",
+        )
+
 
 # ── Visualization tab ────────────────────────────────────────────────────────
 
