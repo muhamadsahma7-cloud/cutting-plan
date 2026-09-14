@@ -297,6 +297,78 @@ def render_materials_tab():
     ]
 
     st.markdown("#### ✂️ Cutting pieces")
+
+    with st.expander("📥 Bulk import from Excel/CSV"):
+        template_buf = BytesIO()
+        template_df = pd.DataFrame([
+            {"Piece ID": "A1", "Description": "Main Beam", "Length (mm)": 6500, "Quantity": 4, "Notes": "Example row"},
+            {"Piece ID": "A2", "Description": "Cross Brace", "Length (mm)": 3200, "Quantity": 8, "Notes": ""},
+        ])
+        with pd.ExcelWriter(template_buf, engine="openpyxl") as writer:
+            template_df.to_excel(writer, sheet_name="Pieces", index=False)
+        st.download_button(
+            "⬇️ Download blank template", data=template_buf.getvalue(),
+            file_name="cutting_pieces_template.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key="pieces_template_dl",
+        )
+
+        uploaded = st.file_uploader(
+            "Upload filled-in template", type=["xlsx", "xls", "csv"], key=f"pieces_upload_{material['id']}",
+        )
+        if uploaded is not None:
+            guard_key = f"_pieces_import_done_{material['id']}"
+            if st.session_state.get(guard_key) != uploaded.file_id:
+                try:
+                    import_df = pd.read_csv(uploaded) if uploaded.name.lower().endswith(".csv") else pd.read_excel(uploaded)
+                except Exception as exc:  # noqa: BLE001
+                    import_df = None
+                    st.error(f"Could not read file: {exc}")
+
+                if import_df is not None:
+                    def _find_col(df, *names):
+                        for n in names:
+                            if n in df.columns:
+                                return n
+                        return None
+
+                    id_col = _find_col(import_df, "Piece ID", "ID", "id")
+                    desc_col = _find_col(import_df, "Description", "Desc", "description")
+                    len_col = _find_col(import_df, "Length (mm)", "Length (m)", "Length", "length")
+                    qty_col = _find_col(import_df, "Quantity", "Qty", "qty", "quantity")
+                    notes_col = _find_col(import_df, "Notes", "notes")
+
+                    if not id_col or not len_col or not qty_col:
+                        st.error("File must have at least Piece ID, Length, and Quantity columns.")
+                    else:
+                        existing = {p["id"]: p for p in material.get("pieces", [])}
+                        added = updated = skipped = 0
+                        for _, r in import_df.iterrows():
+                            pid = str(r[id_col]).strip() if pd.notna(r[id_col]) else ""
+                            length, qty = r[len_col], r[qty_col]
+                            if not pid or pd.isna(length) or not length or pd.isna(qty) or not qty:
+                                skipped += 1
+                                continue
+                            desc = str(r[desc_col]).strip() if desc_col and pd.notna(r[desc_col]) else ""
+                            notes = str(r[notes_col]).strip() if notes_col and pd.notna(r[notes_col]) else ""
+                            if pid in existing:
+                                updated += 1
+                            else:
+                                added += 1
+                            existing[pid] = {
+                                "id": pid, "description": desc or pid,
+                                "length": float(length), "quantity": int(qty), "notes": notes,
+                            }
+
+                        material["pieces"] = list(existing.values())
+                        st.session_state[guard_key] = uploaded.file_id
+                        st.session_state.pop("pieces_editor", None)  # force the grid to reload the new data
+                        st.success(
+                            f"Import complete: {added} added, {updated} updated"
+                            + (f", {skipped} skipped (missing ID/length/quantity)" if skipped else "") + "."
+                        )
+                        st.rerun()
+
     with st.container(border=True):
         pieces_df = pd.DataFrame(material.get("pieces", []), columns=["id", "description", "length", "quantity", "notes"])
         pieces_df = pieces_df.rename(columns={
