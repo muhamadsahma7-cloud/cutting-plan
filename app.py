@@ -640,6 +640,7 @@ def main():
     # made editing anything re-run the cutting optimizer for every material.
     choice = st.segmented_control(
         "Section", tab_names, default=st.session_state.active_tab, label_visibility="collapsed",
+        key="tab_nav",
     )
     if choice is not None:
         st.session_state.active_tab = choice
