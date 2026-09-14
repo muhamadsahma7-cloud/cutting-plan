@@ -12,6 +12,7 @@ from datetime import datetime, timedelta, timezone
 from io import BytesIO
 
 import matplotlib.pyplot as plt
+from matplotlib.backends.backend_pdf import PdfPages
 import pandas as pd
 import streamlit as st
 from dateutil.relativedelta import relativedelta
@@ -433,26 +434,10 @@ def render_materials_tab():
 
 # ── Visualization tab ────────────────────────────────────────────────────────
 
-def render_visualization_tab():
-    mats = st.session_state.materials
-    if not mats:
-        st.info("Add a material and some pieces first.")
-        return
-
-    material = _material_by_id(st.session_state.selected_material_id) or mats[0]
-    if not material.get("pieces"):
-        st.info(f"No cutting pieces defined for {material['name']} yet.")
-        return
-
-    cutting_plan = cached_material_metrics(material, st.session_state.kerf)["cuttingPlan"]
-    if not cutting_plan:
-        st.info("No cutting plan to show.")
-        return
-
-    st.markdown(f"#### 📊 {material['name']}")
-    st.caption(f"Standard length: {material['standardLength']:.0f}mm · Kerf: {st.session_state.kerf}mm")
-
-    fig, ax = plt.subplots(figsize=(10, 0.6 * len(cutting_plan) + 1))
+def _build_cutting_plan_figure(material: dict, cutting_plan: list[dict], kerf: float, title: bool = False):
+    """Draw the bar-by-bar cutting diagram. Shared by the on-screen chart and
+    the PDF export so both always show exactly the same thing."""
+    fig, ax = plt.subplots(figsize=(10, 0.6 * len(cutting_plan) + (1.3 if title else 1)))
     fig.patch.set_facecolor("#ffffff")
     ax.set_facecolor("#ffffff")
     for i, bar in enumerate(cutting_plan):
@@ -472,7 +457,36 @@ def render_visualization_tab():
     ax.set_yticks([])
     ax.set_xlabel("Length (mm)", color="#64748b")
     ax.set_xlim(0, max(b["barLength"] for b in cutting_plan) * 1.25)
+    if title:
+        grade = f" · {material['materialGrade']}" if material.get("materialGrade") else ""
+        ax.set_title(
+            f"{material['name']} ({material['type']}{grade})\nStd: {material['standardLength']:.0f}mm · Kerf: {kerf}mm",
+            fontsize=12, fontweight="bold",
+        )
     fig.tight_layout()
+    return fig
+
+
+def render_visualization_tab():
+    mats = st.session_state.materials
+    if not mats:
+        st.info("Add a material and some pieces first.")
+        return
+
+    material = _material_by_id(st.session_state.selected_material_id) or mats[0]
+    if not material.get("pieces"):
+        st.info(f"No cutting pieces defined for {material['name']} yet.")
+        return
+
+    cutting_plan = cached_material_metrics(material, st.session_state.kerf)["cuttingPlan"]
+    if not cutting_plan:
+        st.info("No cutting plan to show.")
+        return
+
+    st.markdown(f"#### 📊 {material['name']}")
+    st.caption(f"Standard length: {material['standardLength']:.0f}mm · Kerf: {st.session_state.kerf}mm")
+
+    fig = _build_cutting_plan_figure(material, cutting_plan, st.session_state.kerf)
     with st.container(border=True):
         st.pyplot(fig)
 
@@ -579,6 +593,26 @@ def render_export_tab():
         type="primary",
         use_container_width=True,
     )
+
+    materials_with_plans = [m for m in mats if m.get("pieces")]
+    if materials_with_plans:
+        kerf = st.session_state.kerf
+        pdf_buf = BytesIO()
+        with PdfPages(pdf_buf) as pdf:
+            for m in materials_with_plans:
+                cutting_plan = cached_material_metrics(m, kerf)["cuttingPlan"]
+                if not cutting_plan:
+                    continue
+                fig = _build_cutting_plan_figure(m, cutting_plan, kerf, title=True)
+                pdf.savefig(fig)
+                plt.close(fig)
+        st.download_button(
+            "⬇️ Download Cutting Plan PDF",
+            data=pdf_buf.getvalue(),
+            file_name=f"{st.session_state.current_project_name.replace(' ', '_')}_Cutting_Plan.pdf",
+            mime="application/pdf",
+            use_container_width=True,
+        )
 
 
 # ── Admin tab (visible only to supa.ADMIN_EMAIL, mirrors web/script.js) ─────
