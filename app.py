@@ -18,8 +18,10 @@ from dateutil.relativedelta import relativedelta
 
 import cutting_engine as engine
 import supa
+import theme
 
 st.set_page_config(page_title="Cutting Plan & MTO", page_icon="📐", layout="wide")
+theme.inject()
 
 COLORS = ["#10b981", "#3b82f6", "#f59e0b", "#ef4444", "#8b5cf6", "#06b6d4"]
 
@@ -50,8 +52,7 @@ def _material_by_id(mid):
 # ── Auth screen ──────────────────────────────────────────────────────────────
 
 def render_login():
-    st.title("📐 Cutting Plan & MTO")
-    st.caption("Sign in with the same account you use at cuttingnestpro.netlify.app")
+    theme.banner("Cutting Plan & MTO", "Linear cutting optimization & material take-off")
 
     tab_in, tab_up = st.tabs(["Sign In", "Create Account"])
 
@@ -119,21 +120,21 @@ def _build_project_snapshot() -> dict:
 
 def render_sidebar(user):
     with st.sidebar:
-        st.markdown(f"**{user.email}**")
+        st.markdown(f"### 👤 {user.email}")
 
         status = supa.get_access_status(user.id, user.created_at)
         if status["active"]:
             label = "Trial" if status["isTrial"] else status["plan"].title()
-            st.success(f"{label} · {status['daysLeft']} day(s) left")
+            st.success(f"**{label}** · {status['daysLeft']} day(s) left")
         else:
             st.error("Access expired — contact admin to renew.")
 
-        if st.button("Log out", use_container_width=True):
+        if st.button("🚪 Log out", use_container_width=True):
             supa.sign_out()
             st.rerun()
 
         st.divider()
-        st.subheader("Project")
+        st.markdown("#### 📁 Project")
 
         try:
             projects = supa.list_projects()
@@ -193,7 +194,7 @@ def render_sidebar(user):
 # ── Materials & pieces tab ──────────────────────────────────────────────────
 
 def render_materials_tab():
-    st.subheader("Materials")
+    st.markdown("#### 🧱 Materials")
 
     mats = st.session_state.materials
     base_rows = [{
@@ -207,19 +208,20 @@ def render_materials_tab():
         "Weight/m (kg/m)", "Unit Price ($)", "Qty Stock",
     ])
 
-    edited = st.data_editor(
-        df,
-        num_rows="dynamic",
-        use_container_width=True,
-        hide_index=True,
-        column_order=["Name", "Type", "Cross Section", "Standard Length (mm)", "Weight/m (kg/m)", "Unit Price ($)", "Qty Stock"],
-        column_config={
-            "Type": st.column_config.SelectboxColumn(options=[
-                "Steel Beam", "Steel Plate", "Angle Bar", "Channel", "Pipe", "Flat Bar", "Round Bar", "Rebar",
-            ]),
-        },
-        key="materials_editor",
-    )
+    with st.container(border=True):
+        edited = st.data_editor(
+            df,
+            num_rows="dynamic",
+            use_container_width=True,
+            hide_index=True,
+            column_order=["Name", "Type", "Cross Section", "Standard Length (mm)", "Weight/m (kg/m)", "Unit Price ($)", "Qty Stock"],
+            column_config={
+                "Type": st.column_config.SelectboxColumn(options=[
+                    "Steel Beam", "Steel Plate", "Angle Bar", "Channel", "Pipe", "Flat Bar", "Round Bar", "Rebar",
+                ]),
+            },
+            key="materials_editor",
+        )
 
     by_old_id = {m["id"]: m for m in mats}
     new_materials = []
@@ -258,26 +260,29 @@ def render_materials_tab():
     c3.metric("Total Weight (kg)", f"{metrics['totalWeight']:.1f}")
     c4.metric("Efficiency", f"{metrics['efficiency']:.1f}%")
 
-    st.markdown("**Additional stock lengths** (besides the standard length above)")
-    add_df = pd.DataFrame(material.get("additionalStocks", []) or [], columns=["length", "qty"])
-    add_df = add_df.rename(columns={"length": "Length (mm)", "qty": "Qty"})
-    add_edited = st.data_editor(add_df, num_rows="dynamic", use_container_width=True, hide_index=True, key="addstock_editor")
+    st.markdown("#### 📦 Additional stock lengths")
+    st.caption("Besides the standard length above — e.g. shorter offcut lengths already in stock.")
+    with st.container(border=True):
+        add_df = pd.DataFrame(material.get("additionalStocks", []) or [], columns=["length", "qty"])
+        add_df = add_df.rename(columns={"length": "Length (mm)", "qty": "Qty"})
+        add_edited = st.data_editor(add_df, num_rows="dynamic", use_container_width=True, hide_index=True, key="addstock_editor")
     material["additionalStocks"] = [
         {"length": float(r["Length (mm)"]), "qty": int(r["Qty"] or 0)}
         for _, r in add_edited.iterrows() if pd.notna(r["Length (mm)"]) and r["Length (mm)"] > 0
     ]
 
-    st.markdown("**Cutting pieces**")
-    pieces_df = pd.DataFrame(material.get("pieces", []), columns=["id", "description", "length", "quantity", "notes"])
-    pieces_df = pieces_df.rename(columns={
-        "id": "id", "description": "Description", "length": "Length (mm)", "quantity": "Quantity", "notes": "Notes",
-    })
-    pieces_edited = st.data_editor(
-        pieces_df, num_rows="dynamic", use_container_width=True, hide_index=True,
-        column_order=["id", "Description", "Length (mm)", "Quantity", "Notes"],
-        column_config={"id": st.column_config.TextColumn("ID", help="Leave blank on new rows to auto-generate")},
-        key="pieces_editor",
-    )
+    st.markdown("#### ✂️ Cutting pieces")
+    with st.container(border=True):
+        pieces_df = pd.DataFrame(material.get("pieces", []), columns=["id", "description", "length", "quantity", "notes"])
+        pieces_df = pieces_df.rename(columns={
+            "id": "id", "description": "Description", "length": "Length (mm)", "quantity": "Quantity", "notes": "Notes",
+        })
+        pieces_edited = st.data_editor(
+            pieces_df, num_rows="dynamic", use_container_width=True, hide_index=True,
+            column_order=["id", "Description", "Length (mm)", "Quantity", "Notes"],
+            column_config={"id": st.column_config.TextColumn("ID", help="Leave blank on new rows to auto-generate")},
+            key="pieces_editor",
+        )
 
     new_pieces = []
     for _, row in pieces_edited.iterrows():
@@ -312,7 +317,12 @@ def render_visualization_tab():
         st.info("No cutting plan to show.")
         return
 
+    st.markdown(f"#### 📊 {material['name']} — {material['crossSection']}")
+    st.caption(f"Standard length: {material['standardLength']:.0f}mm · Kerf: {st.session_state.kerf}mm")
+
     fig, ax = plt.subplots(figsize=(10, 0.6 * len(cutting_plan) + 1))
+    fig.patch.set_facecolor("#ffffff")
+    ax.set_facecolor("#ffffff")
     for i, bar in enumerate(cutting_plan):
         y = len(cutting_plan) - i
         ax.broken_barh([(0, bar["barLength"])], (y - 0.35, 0.7), facecolors="#f1f5f9", edgecolors="#94a3b8")
@@ -325,12 +335,14 @@ def render_visualization_tab():
         used = sum(p["length"] for p in bar["pieces"])
         ax.text(bar["barLength"] * 1.01, y, f"Bar {i + 1} · {used:.0f}/{bar['barLength']:.0f}mm", va="center", fontsize=8, color="#475569")
 
+    for spine in ("top", "right", "left"):
+        ax.spines[spine].set_visible(False)
     ax.set_yticks([])
-    ax.set_xlabel("Length (mm)")
-    ax.set_title(f"{material['name']} — {material['crossSection']} (Std: {material['standardLength']}mm)")
+    ax.set_xlabel("Length (mm)", color="#64748b")
     ax.set_xlim(0, max(b["barLength"] for b in cutting_plan) * 1.25)
     fig.tight_layout()
-    st.pyplot(fig)
+    with st.container(border=True):
+        st.pyplot(fig)
 
 
 # ── MTO / dashboard tab ──────────────────────────────────────────────────────
@@ -341,6 +353,7 @@ def render_mto_tab():
         st.info("No materials defined yet.")
         return
 
+    st.markdown("#### 📈 Project Overview")
     totals = engine.project_totals(mats, st.session_state.kerf)
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Total Pieces", totals["totalPieces"])
@@ -348,6 +361,7 @@ def render_mto_tab():
     c3.metric("Total Weight (kg)", f"{totals['totalWeight']:.0f}")
     c4.metric("Overall Surplus", f"{totals['overallSurplus']:.1f}%")
 
+    st.markdown("#### 📋 Material Take-Off")
     rows = []
     for m in mats:
         metrics = engine.material_metrics(m, st.session_state.kerf)
@@ -357,12 +371,20 @@ def render_mto_tab():
             "Balance": metrics["balance"], "Total Length (mm)": round(metrics["totalLength"]),
             "Weight (kg)": round(metrics["totalWeight"], 1), "Surplus (%)": round(metrics["surplusPct"], 1),
         })
-    st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+    with st.container(border=True):
+        st.dataframe(
+            pd.DataFrame(rows), use_container_width=True, hide_index=True,
+            column_config={
+                "Balance": st.column_config.NumberColumn(format="%+d"),
+                "Surplus (%)": st.column_config.ProgressColumn(min_value=0, max_value=50, format="%.1f%%"),
+            },
+        )
 
 
 # ── Export tab ───────────────────────────────────────────────────────────────
 
 def render_export_tab():
+    st.markdown("#### 📤 Export")
     mats = st.session_state.materials
     if not mats:
         st.info("No materials to export yet.")
@@ -400,6 +422,7 @@ def render_export_tab():
         data=buf.getvalue(),
         file_name=f"{st.session_state.current_project_name.replace(' ', '_')}.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        type="primary",
         use_container_width=True,
     )
 
@@ -424,7 +447,7 @@ def _status_for(profile: dict, plan_row: dict | None, now: datetime) -> tuple[st
 
 
 def render_admin_tab():
-    st.subheader("Admin — User Access")
+    st.markdown("#### 🛡️ Admin — User Access")
 
     try:
         profiles = supa.list_all_profiles()
@@ -496,11 +519,14 @@ def main():
 
     render_sidebar(user)
 
-    st.title("📐 Cutting Plan & Material Take-Off")
-    tab_names = ["Materials & Pieces", "Cutting Plan", "MTO Summary", "Export"]
+    theme.banner(
+        st.session_state.current_project_name or "Cutting Plan & MTO",
+        "Linear cutting optimization & material take-off",
+    )
+    tab_names = ["🧱 Materials & Pieces", "📊 Cutting Plan", "📋 MTO Summary", "📤 Export"]
     is_admin = user.email == supa.ADMIN_EMAIL
     if is_admin:
-        tab_names.append("Admin")
+        tab_names.append("🛡️ Admin")
 
     tabs = st.tabs(tab_names)
     with tabs[0]:
