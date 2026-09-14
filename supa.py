@@ -114,10 +114,27 @@ def get_access_status(user_id: str, created_at: str) -> dict[str, Any]:
     return {"plan": "trial", "daysLeft": days_left, "active": days_left > 0, "isTrial": True}
 
 
+@st.cache_data(ttl=60, show_spinner=False)
+def cached_get_access_status(user_id: str, created_at: str) -> dict[str, Any]:
+    """Cached wrapper — plan/trial status rarely changes within a session,
+    but render_sidebar() runs on every rerun (including just switching
+    sections), so without caching this hit Supabase on every interaction."""
+    return get_access_status(user_id, created_at)
+
+
 def list_projects() -> list[dict]:
     sb = get_client()
     res = sb.table("projects").select("id, name, updated_at").order("updated_at", desc=True).execute()
     return res.data or []
+
+
+@st.cache_data(ttl=30, show_spinner=False)
+def cached_list_projects(user_id: str) -> list[dict]:
+    """Cached wrapper, keyed on user_id purely to scope the cache per user.
+    Call cached_list_projects.clear() right after create/rename/delete so
+    the sidebar picks up the change immediately instead of waiting out the
+    TTL."""
+    return list_projects()
 
 
 def load_project(project_id: str) -> dict | None:
@@ -155,10 +172,20 @@ def list_all_profiles() -> list[dict]:
     return res.data or []
 
 
+@st.cache_data(ttl=20, show_spinner=False)
+def cached_list_all_profiles() -> list[dict]:
+    return list_all_profiles()
+
+
 def list_all_user_plans() -> list[dict]:
     sb = get_client()
     res = sb.table("user_plans").select("user_id, plan, end_date").execute()
     return res.data or []
+
+
+@st.cache_data(ttl=20, show_spinner=False)
+def cached_list_all_user_plans() -> list[dict]:
+    return list_all_user_plans()
 
 
 def admin_set_plan(user_id: str, plan: str, end_date_iso: str) -> None:
@@ -166,3 +193,4 @@ def admin_set_plan(user_id: str, plan: str, end_date_iso: str) -> None:
     sb.table("user_plans").upsert(
         {"user_id": user_id, "plan": plan, "end_date": end_date_iso}, on_conflict="user_id"
     ).execute()
+    cached_list_all_user_plans.clear()

@@ -133,7 +133,7 @@ def render_sidebar(user):
     with st.sidebar:
         st.markdown(f"### 👤 {user.email}")
 
-        status = supa.get_access_status(user.id, user.created_at)
+        status = supa.cached_get_access_status(user.id, user.created_at)
         if status["active"]:
             label = "Trial" if status["isTrial"] else status["plan"].title()
             st.success(f"**{label}** · {status['daysLeft']} day(s) left")
@@ -148,7 +148,7 @@ def render_sidebar(user):
         st.markdown("#### 📁 Project")
 
         try:
-            projects = supa.list_projects()
+            projects = supa.cached_list_projects(user.id)
         except Exception as exc:  # noqa: BLE001
             projects = []
             st.warning(f"Could not load project list: {exc}")
@@ -180,6 +180,7 @@ def render_sidebar(user):
                     "settings": {"kerf": 2.0}, "version": "streamlit-1.0",
                 }
                 new_id = supa.create_project(user.id, new_name, initial)
+                supa.cached_list_projects.clear()
                 st.session_state.current_project_id = new_id
                 _apply_project_data(initial)
                 st.rerun()
@@ -197,6 +198,7 @@ def render_sidebar(user):
                     st.session_state.current_project_name,
                     _build_project_snapshot(),
                 )
+                supa.cached_list_projects.clear()
                 st.toast("Saved!", icon="✅")
         else:
             st.info("Create or open a project above to enable saving.")
@@ -461,8 +463,8 @@ def render_admin_tab():
     st.markdown("#### 🛡️ Admin — User Access")
 
     try:
-        profiles = supa.list_all_profiles()
-        plans = supa.list_all_user_plans()
+        profiles = supa.cached_list_all_profiles()
+        plans = supa.cached_list_all_user_plans()
     except Exception as exc:  # noqa: BLE001
         st.error(f"Failed to load users: {exc}")
         return
