@@ -529,8 +529,29 @@ def render_export_tab():
                 "Weight (kg)": round(p["length"] * p["quantity"] / 1000 * m["weightPerMeter"], 1),
                 "Notes": p.get("notes", ""),
             } for p in m["pieces"]]
-            sheet_name = f"{m['name'][:25]} Pieces"
+            sheet_name = f"{m['name'][:24]} Pieces"  # Excel sheet names cap at 31 chars
             pd.DataFrame(piece_rows).to_excel(writer, sheet_name=sheet_name, index=False)
+
+            # Bar-by-bar cutting sequence — the actual optimizer output shown
+            # in the Cutting Plan tab, previously missing from this export.
+            kerf = st.session_state.kerf
+            cutting_plan = cached_material_metrics(m, kerf)["cuttingPlan"]
+            if cutting_plan:
+                plan_rows = []
+                for idx, bar in enumerate(cutting_plan):
+                    used = sum(p["length"] for p in bar["pieces"])
+                    kerf_used = len(bar["pieces"]) * kerf
+                    waste = max(0.0, bar["barLength"] - used - kerf_used)
+                    efficiency = (used + kerf_used) / bar["barLength"] * 100 if bar["barLength"] else 0
+                    plan_rows.append({
+                        "Bar Number": idx + 1, "Bar Length (mm)": bar["barLength"],
+                        "Used (mm)": round(used), "Kerf (mm)": round(kerf_used),
+                        "Waste (mm)": round(waste), "Efficiency (%)": round(efficiency, 1),
+                        "Pieces": ", ".join(f"{p['originalId']}({p['length']:.0f}mm)" for p in bar["pieces"]),
+                        "Cut Sequence": " | ".join(f"{i + 1}. {p['originalId']} - {p['length']:.0f}mm" for i, p in enumerate(bar["pieces"])),
+                    })
+                plan_sheet_name = f"{m['name'][:22]} Cut Plan"
+                pd.DataFrame(plan_rows).to_excel(writer, sheet_name=plan_sheet_name, index=False)
 
     st.download_button(
         "⬇️ Download Excel Workbook",
