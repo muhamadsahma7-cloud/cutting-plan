@@ -138,6 +138,28 @@ def _build_project_snapshot() -> dict:
     }
 
 
+@st.dialog("Delete project?")
+def _confirm_delete_project(project_id, project_name: str):
+    st.warning(f"Delete project **{project_name}**? This permanently removes it and all its saved materials/pieces. This cannot be undone.")
+    c1, c2 = st.columns(2)
+    if c1.button("Cancel", use_container_width=True):
+        st.rerun()
+    if c2.button("🗑️ Delete Project", type="primary", use_container_width=True):
+        supa.delete_project(project_id)
+        supa.cached_list_projects.clear()
+        if st.session_state.current_project_id == project_id:
+            st.session_state.current_project_id = None
+            st.session_state.materials = []
+            st.session_state.selected_material_id = None
+            st.session_state.current_project_name = "Untitled Project"
+            st.session_state.project_date = ""
+            st.session_state.project_engineer = ""
+            for key in ("materials_editor", "pieces_editor", "addstock_editor"):
+                st.session_state.pop(key, None)
+        st.toast(f"Deleted project {project_name}", icon="🗑️")
+        st.rerun()
+
+
 def render_sidebar(user):
     with st.sidebar:
         st.markdown(f"### 👤 {user.email}")
@@ -209,14 +231,35 @@ def render_sidebar(user):
                 )
                 supa.cached_list_projects.clear()
                 st.toast("Saved!", icon="✅")
+            if st.button("🗑️ Delete this project", use_container_width=True):
+                _confirm_delete_project(st.session_state.current_project_id, st.session_state.current_project_name)
         else:
             st.info("Create or open a project above to enable saving.")
 
 
 # ── Materials & pieces tab ──────────────────────────────────────────────────
 
+@st.dialog("Delete material?")
+def _confirm_delete_material(material_id, material_name: str, piece_count: int):
+    st.warning(f"Delete **{material_name}** and its {piece_count} piece(s)? This cannot be undone.")
+    c1, c2 = st.columns(2)
+    if c1.button("Cancel", use_container_width=True):
+        st.rerun()
+    if c2.button("🗑️ Delete", type="primary", use_container_width=True):
+        st.session_state.materials = [m for m in st.session_state.materials if m["id"] != material_id]
+        if st.session_state.selected_material_id == material_id:
+            st.session_state.selected_material_id = None
+        # Force the grids to reinitialize from the now-shorter materials
+        # list instead of showing stale rows from before the deletion.
+        for key in ("materials_editor", "pieces_editor", "addstock_editor"):
+            st.session_state.pop(key, None)
+        st.toast(f"Deleted {material_name}", icon="🗑️")
+        st.rerun()
+
+
 def render_materials_tab():
     st.markdown("#### 🧱 Materials")
+    st.caption("Select a row and press Delete/Backspace to remove a material here — this also deletes its pieces without a confirmation prompt. For a confirmed delete, use the 🗑️ Delete button below instead.")
 
     mats = st.session_state.materials
     base_rows = [{
@@ -285,9 +328,16 @@ def render_materials_tab():
     names = [m["name"] for m in new_materials]
     ids = [m["id"] for m in new_materials]
     default_idx = ids.index(st.session_state.selected_material_id) if st.session_state.selected_material_id in ids else 0
-    sel_idx = st.selectbox("Selected material", options=range(len(names)), format_func=lambda i: names[i], index=default_idx)
+
+    sel_col, del_col = st.columns([5, 1])
+    with sel_col:
+        sel_idx = st.selectbox("Selected material", options=range(len(names)), format_func=lambda i: names[i], index=default_idx)
     st.session_state.selected_material_id = ids[sel_idx]
     material = new_materials[sel_idx]
+    with del_col:
+        st.markdown("<div style='height:1.8rem'></div>", unsafe_allow_html=True)  # align with the selectbox
+        if st.button("🗑️ Delete", key=f"delete_material_{material['id']}", use_container_width=True):
+            _confirm_delete_material(material["id"], material["name"], len(material.get("pieces", [])))
 
     metrics = cached_material_metrics(material, st.session_state.kerf)
     c1, c2, c3, c4 = st.columns(4)
@@ -381,6 +431,7 @@ def render_materials_tab():
                         )
                         st.rerun()
 
+    st.caption("Click a row number to select it, then press Delete/Backspace (or use the 🗑️ icon above the table) to remove a piece.")
     with st.container(border=True):
         pieces_df = pd.DataFrame(material.get("pieces", []), columns=["id", "length", "quantity", "notes"])
         pieces_df = pieces_df.rename(columns={"length": "Length (mm)", "quantity": "Quantity", "notes": "Notes"})
