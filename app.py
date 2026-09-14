@@ -24,6 +24,7 @@ st.set_page_config(page_title="Cutting Plan & MTO", page_icon="📐", layout="wi
 theme.inject()
 
 COLORS = ["#10b981", "#3b82f6", "#f59e0b", "#ef4444", "#8b5cf6", "#06b6d4"]
+GRADE_OPTIONS = ["S235", "S275", "S355", "S355JR", "S355J2", "A36", "A572 Gr50", "A992"]
 
 
 # ── Session state defaults ──────────────────────────────────────────────────
@@ -212,12 +213,13 @@ def render_materials_tab():
     mats = st.session_state.materials
     base_rows = [{
         "id": m["id"], "Material Name": m["name"], "Type": m["type"],
+        "Material Grade": m.get("materialGrade", ""),
         "Standard Length (mm)": m["standardLength"],
         "Weight/m (kg/m)": m["weightPerMeter"], "Unit Price ($)": m.get("unitPrice", 0.0),
         "Qty Stock": m.get("qtyStock", 0),
     } for m in mats]
     df = pd.DataFrame(base_rows, columns=[
-        "id", "Material Name", "Type", "Standard Length (mm)",
+        "id", "Material Name", "Type", "Material Grade", "Standard Length (mm)",
         "Weight/m (kg/m)", "Unit Price ($)", "Qty Stock",
     ])
 
@@ -227,11 +229,12 @@ def render_materials_tab():
             num_rows="dynamic",
             use_container_width=True,
             hide_index=True,
-            column_order=["Material Name", "Type", "Standard Length (mm)", "Weight/m (kg/m)", "Unit Price ($)", "Qty Stock"],
+            column_order=["Material Name", "Type", "Material Grade", "Standard Length (mm)", "Weight/m (kg/m)", "Unit Price ($)", "Qty Stock"],
             column_config={
                 "Type": st.column_config.SelectboxColumn(options=[
                     "Steel Beam", "Steel Plate", "Angle Bar", "Channel", "Pipe", "Flat Bar", "Round Bar", "Rebar",
                 ]),
+                "Material Grade": st.column_config.SelectboxColumn(options=GRADE_OPTIONS),
             },
             key="materials_editor",
         )
@@ -258,6 +261,7 @@ def render_materials_tab():
         }
         material.update({
             "name": name, "type": _str(row["Type"]) or "Steel Beam",
+            "materialGrade": _str(row["Material Grade"]),
             "standardLength": _num(row["Standard Length (mm)"], float),
             "weightPerMeter": _num(row["Weight/m (kg/m)"], float),
             "unitPrice": _num(row["Unit Price ($)"], float),
@@ -300,8 +304,8 @@ def render_materials_tab():
     with st.expander("📥 Bulk import from Excel/CSV"):
         template_buf = BytesIO()
         template_df = pd.DataFrame([
-            {"Piece ID": "A1", "Description": "Main Beam", "Length (mm)": 6500, "Quantity": 4, "Notes": "Example row"},
-            {"Piece ID": "A2", "Description": "Cross Brace", "Length (mm)": 3200, "Quantity": 8, "Notes": ""},
+            {"Piece ID": "A1", "Length (mm)": 6500, "Quantity": 4, "Notes": "Example row"},
+            {"Piece ID": "A2", "Length (mm)": 3200, "Quantity": 8, "Notes": ""},
         ])
         with pd.ExcelWriter(template_buf, engine="openpyxl") as writer:
             template_df.to_excel(writer, sheet_name="Pieces", index=False)
@@ -332,7 +336,6 @@ def render_materials_tab():
                         return None
 
                     id_col = _find_col(import_df, "Piece ID", "ID", "id")
-                    desc_col = _find_col(import_df, "Description", "Desc", "description")
                     len_col = _find_col(import_df, "Length (mm)", "Length (m)", "Length", "length")
                     qty_col = _find_col(import_df, "Quantity", "Qty", "qty", "quantity")
                     notes_col = _find_col(import_df, "Notes", "notes")
@@ -348,14 +351,16 @@ def render_materials_tab():
                             if not pid or pd.isna(length) or not length or pd.isna(qty) or not qty:
                                 skipped += 1
                                 continue
-                            desc = str(r[desc_col]).strip() if desc_col and pd.notna(r[desc_col]) else ""
                             notes = str(r[notes_col]).strip() if notes_col and pd.notna(r[notes_col]) else ""
                             if pid in existing:
                                 updated += 1
                             else:
                                 added += 1
+                            # description mirrors the parent material's name (see the
+                            # Cutting pieces grid below) — the template's own
+                            # Description column, if present, is ignored.
                             existing[pid] = {
-                                "id": pid, "description": desc or pid,
+                                "id": pid, "description": material["name"],
                                 "length": float(length), "quantity": int(qty), "notes": notes,
                             }
 
@@ -369,14 +374,22 @@ def render_materials_tab():
                         st.rerun()
 
     with st.container(border=True):
-        pieces_df = pd.DataFrame(material.get("pieces", []), columns=["id", "description", "length", "quantity", "notes"])
-        pieces_df = pieces_df.rename(columns={
-            "id": "id", "description": "Description", "length": "Length (mm)", "quantity": "Quantity", "notes": "Notes",
-        })
+        pieces_df = pd.DataFrame(material.get("pieces", []), columns=["id", "length", "quantity", "notes"])
+        pieces_df = pieces_df.rename(columns={"length": "Length (mm)", "quantity": "Quantity", "notes": "Notes"})
+        # Material Name / Type / Material Grade are reference columns mirroring
+        # the parent material — read-only, not stored per piece.
+        pieces_df.insert(1, "Material Name", material["name"])
+        pieces_df.insert(2, "Type", material["type"])
+        pieces_df.insert(3, "Material Grade", material.get("materialGrade", ""))
         pieces_edited = st.data_editor(
             pieces_df, num_rows="dynamic", use_container_width=True, hide_index=True,
-            column_order=["id", "Description", "Length (mm)", "Quantity", "Notes"],
-            column_config={"id": st.column_config.TextColumn("ID", help="Leave blank on new rows to auto-generate")},
+            column_order=["id", "Material Name", "Type", "Material Grade", "Length (mm)", "Quantity", "Notes"],
+            column_config={
+                "id": st.column_config.TextColumn("ID", help="Leave blank on new rows to auto-generate"),
+                "Material Name": st.column_config.TextColumn(disabled=True, help="From the selected material, above"),
+                "Type": st.column_config.TextColumn(disabled=True, help="From the selected material, above"),
+                "Material Grade": st.column_config.TextColumn(disabled=True, help="From the selected material, above"),
+            },
             key="pieces_editor",
         )
 
@@ -391,10 +404,9 @@ def render_materials_tab():
         pid = str(row["id"]).strip() if pd.notna(row["id"]) and str(row["id"]).strip() else None
         if pid is None:
             pid = engine.generate_piece_id(st.session_state.materials)
-        description = str(row["Description"]).strip() if pd.notna(row["Description"]) else ""
         notes = str(row["Notes"]).strip() if pd.notna(row["Notes"]) else ""
         new_pieces.append({
-            "id": pid, "description": description or pid,
+            "id": pid, "description": material["name"],
             "length": float(length), "quantity": int(qty),
             "notes": notes,
         })
@@ -498,7 +510,7 @@ def render_export_tab():
         for m in mats:
             metrics = cached_material_metrics(m, st.session_state.kerf)
             summary_rows.append({
-                "Material Name": m["name"], "Type": m["type"],
+                "Material Name": m["name"], "Type": m["type"], "Material Grade": m.get("materialGrade", ""),
                 "Standard Length (mm)": m["standardLength"], "Weight per Meter (kg/m)": m["weightPerMeter"],
                 "Unit Price ($)": m.get("unitPrice", 0), "Required Bars": metrics["requiredBars"],
                 "Total Length (mm)": round(metrics["totalLength"]), "Total Weight (kg)": round(metrics["totalWeight"], 1),
@@ -511,7 +523,8 @@ def render_export_tab():
             if not m.get("pieces"):
                 continue
             piece_rows = [{
-                "Piece ID": p["id"], "Description": p["description"], "Length (mm)": p["length"],
+                "Piece ID": p["id"], "Material Name": m["name"], "Type": m["type"],
+                "Material Grade": m.get("materialGrade", ""), "Length (mm)": p["length"],
                 "Quantity": p["quantity"], "Total Length (mm)": p["length"] * p["quantity"],
                 "Weight (kg)": round(p["length"] * p["quantity"] / 1000 * m["weightPerMeter"], 1),
                 "Notes": p.get("notes", ""),
