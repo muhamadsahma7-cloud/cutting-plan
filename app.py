@@ -211,13 +211,13 @@ def render_materials_tab():
 
     mats = st.session_state.materials
     base_rows = [{
-        "id": m["id"], "Name": m["name"], "Type": m["type"],
-        "Cross Section": m["crossSection"], "Standard Length (mm)": m["standardLength"],
+        "id": m["id"], "Material Name": m["name"], "Type": m["type"],
+        "Standard Length (mm)": m["standardLength"],
         "Weight/m (kg/m)": m["weightPerMeter"], "Unit Price ($)": m.get("unitPrice", 0.0),
         "Qty Stock": m.get("qtyStock", 0),
     } for m in mats]
     df = pd.DataFrame(base_rows, columns=[
-        "id", "Name", "Type", "Cross Section", "Standard Length (mm)",
+        "id", "Material Name", "Type", "Standard Length (mm)",
         "Weight/m (kg/m)", "Unit Price ($)", "Qty Stock",
     ])
 
@@ -227,7 +227,7 @@ def render_materials_tab():
             num_rows="dynamic",
             use_container_width=True,
             hide_index=True,
-            column_order=["Name", "Type", "Cross Section", "Standard Length (mm)", "Weight/m (kg/m)", "Unit Price ($)", "Qty Stock"],
+            column_order=["Material Name", "Type", "Standard Length (mm)", "Weight/m (kg/m)", "Unit Price ($)", "Qty Stock"],
             column_config={
                 "Type": st.column_config.SelectboxColumn(options=[
                     "Steel Beam", "Steel Plate", "Angle Bar", "Channel", "Pipe", "Flat Bar", "Round Bar", "Rebar",
@@ -248,17 +248,16 @@ def render_materials_tab():
         # A freshly-added blank row has NaN cells, and str(NaN) == "nan"
         # (truthy!) — so this must check pd.isna directly, not just
         # falsiness, or blank rows silently become materials named "nan".
-        name = _str(row["Name"])
+        name = _str(row["Material Name"])
         if not name:
             continue
         old = by_old_id.get(row["id"])
         material = dict(old) if old else {
             "id": int(time.time() * 1000) + len(new_materials),
-            "pieces": [], "additionalStocks": [],
+            "pieces": [], "additionalStocks": [], "crossSection": "",
         }
         material.update({
             "name": name, "type": _str(row["Type"]) or "Steel Beam",
-            "crossSection": _str(row["Cross Section"]),
             "standardLength": _num(row["Standard Length (mm)"], float),
             "weightPerMeter": _num(row["Weight/m (kg/m)"], float),
             "unitPrice": _num(row["Unit Price ($)"], float),
@@ -420,7 +419,7 @@ def render_visualization_tab():
         st.info("No cutting plan to show.")
         return
 
-    st.markdown(f"#### 📊 {material['name']} — {material['crossSection']}")
+    st.markdown(f"#### 📊 {material['name']}")
     st.caption(f"Standard length: {material['standardLength']:.0f}mm · Kerf: {st.session_state.kerf}mm")
 
     fig, ax = plt.subplots(figsize=(10, 0.6 * len(cutting_plan) + 1))
@@ -499,7 +498,7 @@ def render_export_tab():
         for m in mats:
             metrics = cached_material_metrics(m, st.session_state.kerf)
             summary_rows.append({
-                "Material Name": m["name"], "Type": m["type"], "Cross Section": m["crossSection"],
+                "Material Name": m["name"], "Type": m["type"],
                 "Standard Length (mm)": m["standardLength"], "Weight per Meter (kg/m)": m["weightPerMeter"],
                 "Unit Price ($)": m.get("unitPrice", 0), "Required Bars": metrics["requiredBars"],
                 "Total Length (mm)": round(metrics["totalLength"]), "Total Weight (kg)": round(metrics["totalWeight"], 1),
