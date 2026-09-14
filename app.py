@@ -236,10 +236,20 @@ def render_materials_tab():
             key="materials_editor",
         )
 
+    def _str(v, default=""):
+        return default if pd.isna(v) else str(v).strip()
+
+    def _num(v, cast, default=0):
+        return default if pd.isna(v) else cast(v)
+
     by_old_id = {m["id"]: m for m in mats}
     new_materials = []
     for _, row in edited.iterrows():
-        if not str(row["Name"]).strip():
+        # A freshly-added blank row has NaN cells, and str(NaN) == "nan"
+        # (truthy!) — so this must check pd.isna directly, not just
+        # falsiness, or blank rows silently become materials named "nan".
+        name = _str(row["Name"])
+        if not name:
             continue
         old = by_old_id.get(row["id"])
         material = dict(old) if old else {
@@ -247,10 +257,12 @@ def render_materials_tab():
             "pieces": [], "additionalStocks": [],
         }
         material.update({
-            "name": row["Name"], "type": row["Type"] or "Steel Beam",
-            "crossSection": row["Cross Section"], "standardLength": float(row["Standard Length (mm)"] or 0),
-            "weightPerMeter": float(row["Weight/m (kg/m)"] or 0), "unitPrice": float(row["Unit Price ($)"] or 0),
-            "qtyStock": int(row["Qty Stock"] or 0),
+            "name": name, "type": _str(row["Type"]) or "Steel Beam",
+            "crossSection": _str(row["Cross Section"]),
+            "standardLength": _num(row["Standard Length (mm)"], float),
+            "weightPerMeter": _num(row["Weight/m (kg/m)"], float),
+            "unitPrice": _num(row["Unit Price ($)"], float),
+            "qtyStock": _num(row["Qty Stock"], int),
         })
         new_materials.append(material)
     st.session_state.materials = new_materials
@@ -280,7 +292,7 @@ def render_materials_tab():
         add_df = add_df.rename(columns={"length": "Length (mm)", "qty": "Qty"})
         add_edited = st.data_editor(add_df, num_rows="dynamic", use_container_width=True, hide_index=True, key="addstock_editor")
     material["additionalStocks"] = [
-        {"length": float(r["Length (mm)"]), "qty": int(r["Qty"] or 0)}
+        {"length": float(r["Length (mm)"]), "qty": int(r["Qty"]) if pd.notna(r["Qty"]) else 0}
         for _, r in add_edited.iterrows() if pd.notna(r["Length (mm)"]) and r["Length (mm)"] > 0
     ]
 
@@ -299,15 +311,21 @@ def render_materials_tab():
 
     new_pieces = []
     for _, row in pieces_edited.iterrows():
-        if not row["Length (mm)"] or pd.isna(row["Length (mm)"]) or not row["Quantity"]:
+        length, qty = row["Length (mm)"], row["Quantity"]
+        # pd.isna() must come before any truthiness check — NaN is truthy
+        # in Python, so `not row["Quantity"]` alone lets a blank Quantity
+        # cell through, and int(NaN) then raises ValueError.
+        if pd.isna(length) or not length or pd.isna(qty) or not qty:
             continue
         pid = str(row["id"]).strip() if pd.notna(row["id"]) and str(row["id"]).strip() else None
         if pid is None:
             pid = engine.generate_piece_id(st.session_state.materials)
+        description = str(row["Description"]).strip() if pd.notna(row["Description"]) else ""
+        notes = str(row["Notes"]).strip() if pd.notna(row["Notes"]) else ""
         new_pieces.append({
-            "id": pid, "description": row["Description"] or pid,
-            "length": float(row["Length (mm)"]), "quantity": int(row["Quantity"]),
-            "notes": row["Notes"] or "",
+            "id": pid, "description": description or pid,
+            "length": float(length), "quantity": int(qty),
+            "notes": notes,
         })
     material["pieces"] = new_pieces
 
