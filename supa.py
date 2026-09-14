@@ -138,3 +138,24 @@ def rename_project(project_id: str, name: str) -> None:
 def delete_project(project_id: str) -> None:
     sb = get_client()
     sb.table("projects").delete().eq("id", project_id).execute()
+
+
+# ── Admin panel (mirrors web/script.js's ADMIN_EMAIL-gated admin tab) ───────
+
+def list_all_profiles() -> list[dict]:
+    sb = get_client()
+    res = sb.table("profiles").select("user_id, email, created_at").order("created_at", desc=True).execute()
+    return res.data or []
+
+
+def list_all_user_plans() -> list[dict]:
+    sb = get_client()
+    res = sb.table("user_plans").select("user_id, plan, end_date").execute()
+    return res.data or []
+
+
+def admin_set_plan(user_id: str, plan: str, end_date_iso: str) -> None:
+    sb = get_client()
+    sb.table("user_plans").upsert(
+        {"user_id": user_id, "plan": plan, "end_date": end_date_iso}, on_conflict="user_id"
+    ).execute()

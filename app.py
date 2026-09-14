@@ -8,11 +8,13 @@ shared between the two.
 from __future__ import annotations
 
 import time
+from datetime import datetime, timedelta, timezone
 from io import BytesIO
 
 import matplotlib.pyplot as plt
 import pandas as pd
 import streamlit as st
+from dateutil.relativedelta import relativedelta
 
 import cutting_engine as engine
 import supa
@@ -391,6 +393,88 @@ def render_export_tab():
     )
 
 
+# ── Admin tab (visible only to supa.ADMIN_EMAIL, mirrors web/script.js) ─────
+
+def _status_for(profile: dict, plan_row: dict | None, now: datetime) -> tuple[str, str]:
+    """Return (badge_color, status_text) for one user row."""
+    if plan_row:
+        end = datetime.fromisoformat(plan_row["end_date"].replace("Z", "+00:00"))
+        days_left = (end - now).days
+        if days_left > 0:
+            return "🟢", f"{plan_row['plan']} · {days_left} day(s) left"
+        return "🔴", f"Expired ({plan_row['plan']})"
+
+    created = datetime.fromisoformat(profile["created_at"].replace("Z", "+00:00"))
+    trial_end = created + timedelta(days=supa.TRIAL_DAYS)
+    days_left = (trial_end - now).days
+    if days_left > 0:
+        return "🟡", f"Trial · {days_left} day(s) left"
+    return "🔴", "Trial Expired"
+
+
+def render_admin_tab():
+    st.subheader("Admin — User Access")
+
+    try:
+        profiles = supa.list_all_profiles()
+        plans = supa.list_all_user_plans()
+    except Exception as exc:  # noqa: BLE001
+        st.error(f"Failed to load users: {exc}")
+        return
+
+    if not profiles:
+        st.info("No registered users yet.")
+        return
+
+    plan_map = {p["user_id"]: p for p in plans}
+    now = datetime.now(timezone.utc)
+
+    rows = []
+    for p in profiles:
+        badge, status = _status_for(p, plan_map.get(p["user_id"]), now)
+        rows.append({"": badge, "Email": p["email"], "Status": status, "user_id": p["user_id"]})
+
+    st.dataframe(
+        pd.DataFrame(rows), use_container_width=True, hide_index=True,
+        column_order=["", "Email", "Status"],
+    )
+
+    st.markdown("**Manage access**")
+    emails = [r["Email"] for r in rows]
+    uids = [r["user_id"] for r in rows]
+    idx = st.selectbox("User", options=range(len(emails)), format_func=lambda i: emails[i], key="admin_user_select")
+    target_uid = uids[idx]
+    target_email = emails[idx]
+
+    c1, c2, c3 = st.columns(3)
+    if c1.button("➕ Grant 1 Month", use_container_width=True):
+        end_date = datetime.now(timezone.utc) + relativedelta(months=1)
+        supa.admin_set_plan(target_uid, "monthly", end_date.isoformat())
+        st.toast(f"Granted 1 month to {target_email}", icon="✅")
+        st.rerun()
+    if c2.button("➕ Grant 1 Year", use_container_width=True):
+        end_date = datetime.now(timezone.utc) + relativedelta(years=1)
+        supa.admin_set_plan(target_uid, "yearly", end_date.isoformat())
+        st.toast(f"Granted 1 year to {target_email}", icon="✅")
+        st.rerun()
+    if c3.button("🚫 Revoke Access", use_container_width=True):
+        yesterday = datetime.now(timezone.utc) - timedelta(days=1)
+        supa.admin_set_plan(target_uid, "revoked", yesterday.isoformat())
+        st.toast(f"Revoked access for {target_email}", icon="⚠️")
+        st.rerun()
+
+    with st.expander("Set a custom expiry date"):
+        custom_date = st.date_input("Access expires on", value=datetime.now(timezone.utc) + timedelta(days=30))
+        custom_plan = st.selectbox("Plan label", ["monthly", "yearly", "custom"], key="admin_custom_plan")
+        if st.button("Apply custom date"):
+            end_date = datetime.combine(custom_date, datetime.min.time(), tzinfo=timezone.utc) + timedelta(hours=23, minutes=59)
+            supa.admin_set_plan(target_uid, custom_plan, end_date.isoformat())
+            st.toast(f"Set {target_email} to {custom_plan} until {custom_date}", icon="✅")
+            st.rerun()
+
+    st.caption(f"{len(profiles)} registered user(s) total.")
+
+
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 def main():
@@ -402,15 +486,23 @@ def main():
     render_sidebar(user)
 
     st.title("📐 Cutting Plan & Material Take-Off")
-    tab_mat, tab_viz, tab_mto, tab_export = st.tabs(["Materials & Pieces", "Cutting Plan", "MTO Summary", "Export"])
-    with tab_mat:
+    tab_names = ["Materials & Pieces", "Cutting Plan", "MTO Summary", "Export"]
+    is_admin = user.email == supa.ADMIN_EMAIL
+    if is_admin:
+        tab_names.append("Admin")
+
+    tabs = st.tabs(tab_names)
+    with tabs[0]:
         render_materials_tab()
-    with tab_viz:
+    with tabs[1]:
         render_visualization_tab()
-    with tab_mto:
+    with tabs[2]:
         render_mto_tab()
-    with tab_export:
+    with tabs[3]:
         render_export_tab()
+    if is_admin:
+        with tabs[4]:
+            render_admin_tab()
 
 
 if __name__ == "__main__":
