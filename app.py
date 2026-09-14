@@ -438,7 +438,7 @@ def render_materials_tab():
 # export, so materials with many bars paginate onto multiple properly-sized
 # sheets instead of one oversized page that prints squished/illegible.
 PDF_PAGE_W, PDF_PAGE_H = 16.54, 11.69
-PDF_HEADER_H, PDF_FOOTER_H, PDF_BAR_ROW_H = 1.3, 0.5, 0.55
+PDF_HEADER_H, PDF_FOOTER_H, PDF_BAR_ROW_H = 1.3, 0.5, 0.68
 
 
 def _draw_cutting_bars(ax, bars: list[dict], start_index: int = 0):
@@ -449,22 +449,39 @@ def _draw_cutting_bars(ax, bars: list[dict], start_index: int = 0):
         y = n - i
         ax.broken_barh([(0, bar["barLength"])], (y - 0.35, 0.7), facecolors="#f1f5f9", edgecolors="#94a3b8")
         x = 0
+        small_pieces = []
         for pi, piece in enumerate(bar["pieces"]):
             ax.broken_barh([(x, piece["length"])], (y - 0.3, 0.6), facecolors=COLORS[pi % len(COLORS)], edgecolors="white")
             # Wide enough for "ID + length" on two lines; narrower pieces
-            # still get just the ID rather than crowded, unreadable text.
+            # still get just the ID; too narrow for either gets listed in
+            # the "Small pieces" legend below the bar instead of no label
+            # at all — a bar with lots of small cuts was showing no length
+            # for most of them.
             if piece["length"] > bar["barLength"] * 0.08:
                 label, size = f"{piece['originalId']}\n{piece['length']:.0f}mm", 7.5
-            elif piece["length"] > bar["barLength"] * 0.04:
+            elif piece["length"] > bar["barLength"] * 0.045:
                 label, size = piece["originalId"], 8
             else:
                 label = None
+                small_pieces.append(piece)
             if label:
                 ax.text(x + piece["length"] / 2, y, label, ha="center", va="center",
                          color="white", fontsize=size, fontweight="bold", linespacing=1.4)
             x += piece["length"]
         used = sum(p["length"] for p in bar["pieces"])
         ax.text(bar["barLength"] * 1.01, y, f"Bar {start_index + i + 1} · {used:.0f}/{bar['barLength']:.0f}mm", va="center", fontsize=8, color="#475569")
+
+        if small_pieces:
+            counts: dict[tuple[str, float], int] = {}
+            for p in small_pieces:
+                key = (p["originalId"], p["length"])
+                counts[key] = counts.get(key, 0) + 1
+            parts = [
+                f"{pid} {length:.0f}mm" + (f"×{count}" if count > 1 else "")
+                for (pid, length), count in counts.items()
+            ]
+            ax.text(0, y - 0.46, "Small pieces: " + ", ".join(parts),
+                     fontsize=6.5, color="#334155", va="top", ha="left")
 
     for spine in ("top", "right", "left"):
         ax.spines[spine].set_visible(False)
@@ -477,7 +494,7 @@ def _build_cutting_plan_figure(material: dict, cutting_plan: list[dict], kerf: f
     """The on-screen chart: one figure, auto-sized to fit every bar (fine
     for scrolling in a browser, not for printing — see the PDF builder
     below for that)."""
-    fig, ax = plt.subplots(figsize=(10, 0.6 * len(cutting_plan) + (1.3 if title else 1)))
+    fig, ax = plt.subplots(figsize=(10, 0.72 * len(cutting_plan) + (1.3 if title else 1)))
     fig.patch.set_facecolor("#ffffff")
     ax.set_facecolor("#ffffff")
     _draw_cutting_bars(ax, cutting_plan)
@@ -492,7 +509,7 @@ def _build_cutting_plan_figure(material: dict, cutting_plan: list[dict], kerf: f
 
 
 def _build_cutting_plan_pdf_pages(material: dict, cutting_plan: list[dict], kerf: float) -> list:
-    """One or more fixed-size (A4 landscape) pages for a material's cutting
+    """One or more fixed-size (A3 landscape) pages for a material's cutting
     plan — splits onto multiple pages if there are more bars than fit
     legibly on one printed sheet."""
     bars_per_page = max(1, int((PDF_PAGE_H - PDF_HEADER_H - PDF_FOOTER_H) / PDF_BAR_ROW_H))
