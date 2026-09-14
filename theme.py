@@ -59,7 +59,18 @@ CSS = f"""
     color: white;
 }}
 
-/* Tabs styled as pill navigation */
+/* Segmented control (section nav) styled as pill navigation */
+[data-testid="stSegmentedControl"] button {{
+    border-radius: 8px !important;
+    font-weight: 600;
+}}
+[data-testid="stSegmentedControl"] button[aria-checked="true"] {{
+    background: linear-gradient(135deg, var(--primary), var(--primary-light)) !important;
+    color: white !important;
+    border-color: transparent !important;
+}}
+
+/* Tabs styled as pill navigation (used on the sign-in screen) */
 .stTabs [data-baseweb="tab-list"] {{
     gap: 4px;
     border-bottom: 2px solid var(--border);

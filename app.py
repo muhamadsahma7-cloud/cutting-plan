@@ -49,6 +49,17 @@ def _material_by_id(mid):
     return next((m for m in st.session_state.materials if m["id"] == mid), None)
 
 
+@st.cache_data(show_spinner=False)
+def cached_material_metrics(material: dict, kerf: float) -> dict:
+    """Cached wrapper around the bin-packing optimizer.
+
+    Keyed on the material's own content + kerf, so unrelated reruns (typing
+    in the sidebar, editing a different material) hit the cache instead of
+    re-running first-fit-decreasing packing from scratch.
+    """
+    return engine.material_metrics(material, kerf)
+
+
 # ── Auth screen ──────────────────────────────────────────────────────────────
 
 def render_login():
@@ -253,7 +264,7 @@ def render_materials_tab():
     st.session_state.selected_material_id = ids[sel_idx]
     material = new_materials[sel_idx]
 
-    metrics = engine.material_metrics(material, st.session_state.kerf)
+    metrics = cached_material_metrics(material, st.session_state.kerf)
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Bars Required", metrics["requiredBars"])
     c2.metric("Stock Balance", f"{metrics['balance']:+d}" if isinstance(metrics["balance"], int) else metrics["balance"])
@@ -312,7 +323,7 @@ def render_visualization_tab():
         st.info(f"No cutting pieces defined for {material['name']} yet.")
         return
 
-    cutting_plan = engine.optimize_cutting_plan(material, st.session_state.kerf)
+    cutting_plan = cached_material_metrics(material, st.session_state.kerf)["cuttingPlan"]
     if not cutting_plan:
         st.info("No cutting plan to show.")
         return
@@ -364,7 +375,7 @@ def render_mto_tab():
     st.markdown("#### 📋 Material Take-Off")
     rows = []
     for m in mats:
-        metrics = engine.material_metrics(m, st.session_state.kerf)
+        metrics = cached_material_metrics(m, st.session_state.kerf)
         rows.append({
             "Material": m["name"], "Type": m["type"], "Bars Required": metrics["requiredBars"],
             "Standard Length (mm)": m["standardLength"], "Stock Qty": metrics["totalStockQty"],
@@ -394,7 +405,7 @@ def render_export_tab():
     with pd.ExcelWriter(buf, engine="openpyxl") as writer:
         summary_rows = []
         for m in mats:
-            metrics = engine.material_metrics(m, st.session_state.kerf)
+            metrics = cached_material_metrics(m, st.session_state.kerf)
             summary_rows.append({
                 "Material Name": m["name"], "Type": m["type"], "Cross Section": m["crossSection"],
                 "Standard Length (mm)": m["standardLength"], "Weight per Meter (kg/m)": m["weightPerMeter"],
@@ -528,18 +539,30 @@ def main():
     if is_admin:
         tab_names.append("🛡️ Admin")
 
-    tabs = st.tabs(tab_names)
-    with tabs[0]:
+    if st.session_state.get("active_tab") not in tab_names:
+        st.session_state.active_tab = tab_names[0]
+
+    # A segmented control (rather than st.tabs) so only the selected
+    # section's code actually runs each rerun — st.tabs executes every
+    # tab's body on every rerun regardless of which one is visible, which
+    # made editing anything re-run the cutting optimizer for every material.
+    choice = st.segmented_control(
+        "Section", tab_names, default=st.session_state.active_tab, label_visibility="collapsed",
+    )
+    if choice is not None:
+        st.session_state.active_tab = choice
+    active = st.session_state.active_tab
+
+    if active == tab_names[0]:
         render_materials_tab()
-    with tabs[1]:
+    elif active == tab_names[1]:
         render_visualization_tab()
-    with tabs[2]:
+    elif active == tab_names[2]:
         render_mto_tab()
-    with tabs[3]:
+    elif active == tab_names[3]:
         render_export_tab()
-    if is_admin:
-        with tabs[4]:
-            render_admin_tab()
+    elif is_admin and active == tab_names[4]:
+        render_admin_tab()
 
 
 if __name__ == "__main__":
