@@ -4,3 +4,4 @@ __pycache__/
 venv/
 .streamlit/secrets.toml
 run.log
+_admin_reset_password.py

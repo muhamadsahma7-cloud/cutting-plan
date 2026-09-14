@@ -17,12 +17,10 @@ from supabase import Client, create_client
 TRIAL_DAYS = 7
 ADMIN_EMAIL = "muhamadsahma@gmail.com"
 
-# Same public project URL/anon key already embedded in web/script.js.
-# An anon key is meant to be public — real access control lives in Supabase RLS.
+# Same public project URL/publishable key already embedded in web/script.js.
+# A publishable key is meant to be public — real access control lives in Supabase RLS.
 _DEFAULT_URL = "https://qaiwtwyvnrquwsatnffv.supabase.co"
-_DEFAULT_ANON_KEY = (
-    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFhaXd0d3l2bnJxdXdzYXRuZmZ2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIyODU4NTMsImV4cCI6MjA4Nzg2MTg1M30.3V3gYy-6IAC0x7yL8h0K8ECUNkdzkpWhE_U2A4TtVq0"
-)
+_DEFAULT_ANON_KEY = "sb_publishable_K5VFg9vMzQqruCdSHgAGog_-v8Px2rF"
 
 
 def _secret(key: str, default: str) -> str:
