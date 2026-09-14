@@ -434,14 +434,19 @@ def render_materials_tab():
 
 # ── Visualization tab ────────────────────────────────────────────────────────
 
-def _build_cutting_plan_figure(material: dict, cutting_plan: list[dict], kerf: float, title: bool = False):
-    """Draw the bar-by-bar cutting diagram. Shared by the on-screen chart and
-    the PDF export so both always show exactly the same thing."""
-    fig, ax = plt.subplots(figsize=(10, 0.6 * len(cutting_plan) + (1.3 if title else 1)))
-    fig.patch.set_facecolor("#ffffff")
-    ax.set_facecolor("#ffffff")
-    for i, bar in enumerate(cutting_plan):
-        y = len(cutting_plan) - i
+# Standard printable page (A4 landscape, inches) — used only for the PDF
+# export, so materials with many bars paginate onto multiple properly-sized
+# sheets instead of one oversized page that prints squished/illegible.
+PDF_PAGE_W, PDF_PAGE_H = 11.69, 8.27
+PDF_HEADER_H, PDF_FOOTER_H, PDF_BAR_ROW_H = 1.3, 0.5, 0.55
+
+
+def _draw_cutting_bars(ax, bars: list[dict], start_index: int = 0):
+    """Draw one page's worth of bars. start_index offsets the displayed
+    'Bar N' label so pagination doesn't restart the count at 1."""
+    n = len(bars)
+    for i, bar in enumerate(bars):
+        y = n - i
         ax.broken_barh([(0, bar["barLength"])], (y - 0.35, 0.7), facecolors="#f1f5f9", edgecolors="#94a3b8")
         x = 0
         for pi, piece in enumerate(bar["pieces"]):
@@ -459,13 +464,23 @@ def _build_cutting_plan_figure(material: dict, cutting_plan: list[dict], kerf: f
                          color="white", fontsize=size, fontweight="bold", linespacing=1.4)
             x += piece["length"]
         used = sum(p["length"] for p in bar["pieces"])
-        ax.text(bar["barLength"] * 1.01, y, f"Bar {i + 1} · {used:.0f}/{bar['barLength']:.0f}mm", va="center", fontsize=8, color="#475569")
+        ax.text(bar["barLength"] * 1.01, y, f"Bar {start_index + i + 1} · {used:.0f}/{bar['barLength']:.0f}mm", va="center", fontsize=8, color="#475569")
 
     for spine in ("top", "right", "left"):
         ax.spines[spine].set_visible(False)
     ax.set_yticks([])
     ax.set_xlabel("Length (mm)", color="#64748b")
-    ax.set_xlim(0, max(b["barLength"] for b in cutting_plan) * 1.25)
+    ax.set_xlim(0, max(b["barLength"] for b in bars) * 1.25)
+
+
+def _build_cutting_plan_figure(material: dict, cutting_plan: list[dict], kerf: float, title: bool = False):
+    """The on-screen chart: one figure, auto-sized to fit every bar (fine
+    for scrolling in a browser, not for printing — see the PDF builder
+    below for that)."""
+    fig, ax = plt.subplots(figsize=(10, 0.6 * len(cutting_plan) + (1.3 if title else 1)))
+    fig.patch.set_facecolor("#ffffff")
+    ax.set_facecolor("#ffffff")
+    _draw_cutting_bars(ax, cutting_plan)
     if title:
         grade = f" · {material['materialGrade']}" if material.get("materialGrade") else ""
         ax.set_title(
@@ -474,6 +489,32 @@ def _build_cutting_plan_figure(material: dict, cutting_plan: list[dict], kerf: f
         )
     fig.tight_layout()
     return fig
+
+
+def _build_cutting_plan_pdf_pages(material: dict, cutting_plan: list[dict], kerf: float) -> list:
+    """One or more fixed-size (A4 landscape) pages for a material's cutting
+    plan — splits onto multiple pages if there are more bars than fit
+    legibly on one printed sheet."""
+    bars_per_page = max(1, int((PDF_PAGE_H - PDF_HEADER_H - PDF_FOOTER_H) / PDF_BAR_ROW_H))
+    total_pages = max(1, -(-len(cutting_plan) // bars_per_page))  # ceil division
+    grade = f" · {material['materialGrade']}" if material.get("materialGrade") else ""
+
+    figures = []
+    for page in range(total_pages):
+        start = page * bars_per_page
+        page_bars = cutting_plan[start:start + bars_per_page]
+        fig, ax = plt.subplots(figsize=(PDF_PAGE_W, PDF_PAGE_H))
+        fig.patch.set_facecolor("#ffffff")
+        ax.set_facecolor("#ffffff")
+        _draw_cutting_bars(ax, page_bars, start_index=start)
+        page_note = f" — page {page + 1} of {total_pages}" if total_pages > 1 else ""
+        ax.set_title(
+            f"{material['name']} ({material['type']}{grade}){page_note}\nStd: {material['standardLength']:.0f}mm · Kerf: {kerf}mm",
+            fontsize=13, fontweight="bold",
+        )
+        fig.tight_layout()
+        figures.append(fig)
+    return figures
 
 
 def render_visualization_tab():
@@ -612,9 +653,9 @@ def render_export_tab():
                 cutting_plan = cached_material_metrics(m, kerf)["cuttingPlan"]
                 if not cutting_plan:
                     continue
-                fig = _build_cutting_plan_figure(m, cutting_plan, kerf, title=True)
-                pdf.savefig(fig)
-                plt.close(fig)
+                for fig in _build_cutting_plan_pdf_pages(m, cutting_plan, kerf):
+                    pdf.savefig(fig)
+                    plt.close(fig)
         st.download_button(
             "⬇️ Download Cutting Plan PDF",
             data=pdf_buf.getvalue(),
