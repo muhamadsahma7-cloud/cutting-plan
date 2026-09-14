@@ -508,7 +508,30 @@ def _build_cutting_plan_figure(material: dict, cutting_plan: list[dict], kerf: f
     return fig
 
 
-def _build_cutting_plan_pdf_pages(material: dict, cutting_plan: list[dict], kerf: float) -> list:
+def _build_cutting_plan_cover_page(project_name: str, project_date: str, engineer: str, material_count: int, bar_count: int):
+    """Title page: project name + report metadata, same A3-landscape size
+    as the material pages that follow it."""
+    fig, ax = plt.subplots(figsize=(PDF_PAGE_W, PDF_PAGE_H))
+    fig.patch.set_facecolor("#ffffff")
+    ax.axis("off")
+
+    ax.text(0.5, 0.72, "CUTTING PLAN", ha="center", fontsize=30, fontweight="bold", color="#1e293b", transform=ax.transAxes)
+    ax.text(0.5, 0.60, project_name or "Untitled Project", ha="center", fontsize=22, color="#2563eb", transform=ax.transAxes)
+
+    detail_lines = []
+    if project_date:
+        detail_lines.append(f"Date: {project_date}")
+    if engineer:
+        detail_lines.append(f"Engineer: {engineer}")
+    detail_lines.append(f"{material_count} material(s) · {bar_count} bar(s) total")
+    detail_lines.append(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+    ax.text(0.5, 0.47, "\n".join(detail_lines), ha="center", va="top", fontsize=12, color="#475569", transform=ax.transAxes)
+
+    fig.tight_layout()
+    return fig
+
+
+def _build_cutting_plan_pdf_pages(material: dict, cutting_plan: list[dict], kerf: float, project_name: str = "") -> list:
     """One or more fixed-size (A3 landscape) pages for a material's cutting
     plan — splits onto multiple pages if there are more bars than fit
     legibly on one printed sheet."""
@@ -529,7 +552,9 @@ def _build_cutting_plan_pdf_pages(material: dict, cutting_plan: list[dict], kerf
             f"{material['name']} ({material['type']}{grade}){page_note}\nStd: {material['standardLength']:.0f}mm · Kerf: {kerf}mm",
             fontsize=13, fontweight="bold",
         )
-        fig.tight_layout()
+        if project_name:
+            fig.text(0.01, 0.01, project_name, fontsize=8, color="#94a3b8")
+        fig.tight_layout(rect=(0, 0.02, 1, 1))
         figures.append(fig)
     return figures
 
@@ -664,13 +689,24 @@ def render_export_tab():
     materials_with_plans = [m for m in mats if m.get("pieces")]
     if materials_with_plans:
         kerf = st.session_state.kerf
+        project_name = st.session_state.current_project_name
+        plans = [
+            (m, cached_material_metrics(m, kerf)["cuttingPlan"])
+            for m in materials_with_plans
+        ]
+        plans = [(m, cp) for m, cp in plans if cp]
+
         pdf_buf = BytesIO()
         with PdfPages(pdf_buf) as pdf:
-            for m in materials_with_plans:
-                cutting_plan = cached_material_metrics(m, kerf)["cuttingPlan"]
-                if not cutting_plan:
-                    continue
-                for fig in _build_cutting_plan_pdf_pages(m, cutting_plan, kerf):
+            cover = _build_cutting_plan_cover_page(
+                project_name, st.session_state.project_date, st.session_state.project_engineer,
+                material_count=len(plans), bar_count=sum(len(cp) for _, cp in plans),
+            )
+            pdf.savefig(cover)
+            plt.close(cover)
+
+            for m, cutting_plan in plans:
+                for fig in _build_cutting_plan_pdf_pages(m, cutting_plan, kerf, project_name=project_name):
                     pdf.savefig(fig)
                     plt.close(fig)
         st.download_button(
