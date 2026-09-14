@@ -446,8 +446,17 @@ def _build_cutting_plan_figure(material: dict, cutting_plan: list[dict], kerf: f
         x = 0
         for pi, piece in enumerate(bar["pieces"]):
             ax.broken_barh([(x, piece["length"])], (y - 0.3, 0.6), facecolors=COLORS[pi % len(COLORS)], edgecolors="white")
-            if piece["length"] > bar["barLength"] * 0.04:
-                ax.text(x + piece["length"] / 2, y, piece["originalId"], ha="center", va="center", color="white", fontsize=8, fontweight="bold")
+            # Wide enough for "ID + length" on two lines; narrower pieces
+            # still get just the ID rather than crowded, unreadable text.
+            if piece["length"] > bar["barLength"] * 0.08:
+                label, size = f"{piece['originalId']}\n{piece['length']:.0f}mm", 7.5
+            elif piece["length"] > bar["barLength"] * 0.04:
+                label, size = piece["originalId"], 8
+            else:
+                label = None
+            if label:
+                ax.text(x + piece["length"] / 2, y, label, ha="center", va="center",
+                         color="white", fontsize=size, fontweight="bold", linespacing=1.4)
             x += piece["length"]
         used = sum(p["length"] for p in bar["pieces"])
         ax.text(bar["barLength"] * 1.01, y, f"Bar {i + 1} · {used:.0f}/{bar['barLength']:.0f}mm", va="center", fontsize=8, color="#475569")
