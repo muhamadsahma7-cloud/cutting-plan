@@ -25,10 +25,20 @@ _DEFAULT_ANON_KEY = (
 )
 
 
+def _secret(key: str, default: str) -> str:
+    # st.secrets.get() raises StreamlitSecretNotFoundError (not caught by
+    # Mapping.get's KeyError handling) when no secrets.toml exists at all,
+    # so fall back to the default explicitly instead of relying on .get().
+    try:
+        return st.secrets[key]
+    except Exception:
+        return default
+
+
 def get_client() -> Client:
     if "sb_client" not in st.session_state:
-        url = st.secrets.get("SUPABASE_URL", _DEFAULT_URL)
-        key = st.secrets.get("SUPABASE_ANON_KEY", _DEFAULT_ANON_KEY)
+        url = _secret("SUPABASE_URL", _DEFAULT_URL)
+        key = _secret("SUPABASE_ANON_KEY", _DEFAULT_ANON_KEY)
         st.session_state.sb_client = create_client(url, key)
     return st.session_state.sb_client
 
